@@ -17,6 +17,8 @@ from .raster_spec import Bbox, RasterSpec
 from .rio_reader import AutoParallelRioReader, LayeredEnv
 from .reader_protocol import Reader
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 ChunkVal = Union[int, Literal["auto"], str, None]
 ChunksParam = Union[ChunkVal, Tuple[ChunkVal, ...], Dict[int, ChunkVal]]
 
@@ -172,32 +174,34 @@ def fetch_raster_window(
 
     all_empty: bool = True
     entry: ReaderTableEntry
+    thread_pool = ThreadPoolExecutor(len(reader_table))
+    futures = []
     for index, entry in np.ndenumerate(reader_table):
         if entry:
             reader, asset_window = entry
             # Only read if the window we're fetching actually overlaps with the asset
             if windows.intersect(current_window, asset_window):
-                # NOTE: when there are multiple assets, we _could_ parallelize these reads with our own threadpool.
-                # However, that would probably increase memory usage, since the internal, thread-local GDAL datasets
-                # would end up copied to even more threads.
 
                 # TODO when the Reader won't be rescaling, support passing `output` to avoid the copy?
-                data = reader.read(current_window)
+                futures.append(thread_pool.submit(lambda: (index, reader.read(current_window))))
 
-                if all_empty:
-                    # Turn `output` from a broadcast-trick array to a real array, so it's writeable
-                    if (
-                        np.isnan(data)
-                        if np.isnan(fill_value)
-                        else np.equal(data, fill_value)
-                    ).all():
-                        # Unless the data we just read is all empty anyway
-                        continue
-                    output = np.array(output)
-                    all_empty = False
+    for future in as_completed(futures):
+        index, data = future.result()
+        if all_empty:
+            # Turn `output` from a broadcast-trick array to a real array, so it's writeable
+            if (
+                np.isnan(data)
+                if np.isnan(fill_value)
+                else np.equal(data, fill_value)
+            ).all():
+                # Unless the data we just read is all empty anyway
+                continue
+            output = np.array(output)
+            all_empty = False
 
-                output[index] = data
-
+        output[index] = data
+    
+    thread_pool.shutdown()
     return output
 
 
