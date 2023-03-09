@@ -18,6 +18,7 @@ from .rio_reader import AutoParallelRioReader, LayeredEnv
 from .reader_protocol import Reader
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from distributed.worker import logger
 
 ChunkVal = Union[int, Literal["auto"], str, None]
 ChunksParam = Union[ChunkVal, Tuple[ChunkVal, ...], Dict[int, ChunkVal]]
@@ -174,6 +175,7 @@ def fetch_raster_window(
 
     all_empty: bool = True
     entry: ReaderTableEntry
+    logger.warning("Start read-threadpool.")
     thread_pool = ThreadPoolExecutor(len(reader_table))
     futures = []
     for index, entry in np.ndenumerate(reader_table):
@@ -181,12 +183,13 @@ def fetch_raster_window(
             reader, asset_window = entry
             # Only read if the window we're fetching actually overlaps with the asset
             if windows.intersect(current_window, asset_window):
-
                 # TODO when the Reader won't be rescaling, support passing `output` to avoid the copy?
                 futures.append(thread_pool.submit(lambda: (index, reader.read(current_window))))
+                logger.warning(f"Submitted request {index}")
 
     for future in as_completed(futures):
         index, data = future.result()
+        logger.warning(f"Received request {index}")
         if all_empty:
             # Turn `output` from a broadcast-trick array to a real array, so it's writeable
             if (
@@ -200,8 +203,8 @@ def fetch_raster_window(
             all_empty = False
 
         output[index] = data
-    
     thread_pool.shutdown()
+    logger.warning("Shutdown pool")
     return output
 
 
