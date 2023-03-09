@@ -19,10 +19,12 @@ from .reader_protocol import Reader
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from distributed.worker import logger
+import os
 
 ChunkVal = Union[int, Literal["auto"], str, None]
 ChunksParam = Union[ChunkVal, Tuple[ChunkVal, ...], Dict[int, ChunkVal]]
-
+RUN_MODE = os.environ.get('RUN_MODE')
+TRACE = (RUN_MODE == 'trace')
 
 def items_to_dask(
     asset_table: np.ndarray,
@@ -175,7 +177,8 @@ def fetch_raster_window(
 
     all_empty: bool = True
     entry: ReaderTableEntry
-    logger.warning("Start read-threadpool.")
+    if TRACE:
+        logger.warning("Start read-threadpool.")
     thread_pool = ThreadPoolExecutor(len(reader_table))
     futures = []
     for index, entry in np.ndenumerate(reader_table):
@@ -185,11 +188,13 @@ def fetch_raster_window(
             if windows.intersect(current_window, asset_window):
                 # TODO when the Reader won't be rescaling, support passing `output` to avoid the copy?
                 futures.append(thread_pool.submit(lambda: (index, reader.read(current_window))))
-                logger.warning(f"Submitted request {index}")
+                if TRACE:
+                    logger.warning(f"Submitted request {index}")
 
     for future in as_completed(futures):
         index, data = future.result()
-        logger.warning(f"Received request {index}")
+        if TRACE:
+            logger.warning(f"Received request {index}")
         if all_empty:
             # Turn `output` from a broadcast-trick array to a real array, so it's writeable
             if (
@@ -204,7 +209,8 @@ def fetch_raster_window(
 
         output[index] = data
     thread_pool.shutdown()
-    logger.warning("Shutdown pool")
+    if TRACE:
+        logger.warning("Shutdown pool")
     return output
 
 
