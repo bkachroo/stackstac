@@ -154,6 +154,14 @@ def asset_table_to_reader_and_window(
             reader_table[index] = entry
     return reader_table
 
+def try_read(index, reader, window):
+    try:
+        data = reader.read(window)
+    except RuntimeError as e:
+        logger.warning(str(e))
+        return index, np.empty((window.height, window.width)) * np.nan
+    return index, data
+
 
 def fetch_raster_window(
     reader_table: np.ndarray,
@@ -187,7 +195,7 @@ def fetch_raster_window(
             # Only read if the window we're fetching actually overlaps with the asset
             if windows.intersect(current_window, asset_window):
                 # TODO when the Reader won't be rescaling, support passing `output` to avoid the copy?
-                futures.append(thread_pool.submit(lambda: (index, reader.read(current_window))))
+                futures.append(thread_pool.submit(try_read, index, reader, current_window))
                 if TRACE:
                     logger.warning(f"Submitted request {index}")
 
