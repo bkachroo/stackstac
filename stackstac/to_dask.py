@@ -20,6 +20,9 @@ from .reader_protocol import Reader
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from distributed.worker import logger
 import os
+import subprocess
+import uuid
+import shlex
 
 ChunkVal = Union[int, Literal["auto"], str, None]
 ChunksParam = Union[ChunkVal, Tuple[ChunkVal, ...], Dict[int, ChunkVal]]
@@ -155,12 +158,53 @@ def asset_table_to_reader_and_window(
     return reader_table
 
 def try_read(index, reader, window):
+    if check_hdf4(reader.url):
+        reader.url = fileize_link(reader.url)
     try:
         data = reader.read(window)
     except RuntimeError as e:
         logger.warning(str(e))
         return index, np.empty((window.height, window.width)) * np.nan
     return index, data
+
+def check_hdf4(url):
+    return '.hdf' in url
+
+
+def strip_link(subdataset_url, extension='.hdf'):
+    end_pos = subdataset_url.find(extension) + 4
+    http_pos = subdataset_url.find('http')
+    if http_pos != -1:
+        return subdataset_url[http_pos:end_pos]
+    vsi_pos = subdataset_url.find('/vsi')
+    if vsi_pos != -1:
+        return subdataset_url[vsi_pos:end_pos]
+    return None
+
+def fileize_link(subdataset_url, extension='.hdf', file_only=False):
+    partial = subdataset_url.split(extension)[0]
+    folder_end = partial.rindex('/') + 1
+    if file_only:
+        return partial[folder_end:] + extension
+    http_pos = subdataset_url.find('http')
+    if http_pos != -1:
+        return subdataset_url[:http_pos] + subdataset_url[folder_end:]
+    vsi_pos = subdataset_url.find('/vsi')
+    if vsi_pos != -1:
+        return subdataset_url[:vsi_pos] + subdataset_url[folder_end:]
+    return None
+
+
+def bulk_download(urls):
+    # write to tempfile
+    tmpfilename = 'curlconfig' + str(uuid.uuid4()) + '.txt'
+    urltxt = "\n".join(["url = " + z for z in urls] + ["--remote-name-all"])
+    with open(tmpfilename, 'w') as f:
+        f.write(urltxt)
+    process = subprocess.Popen(shlex.split(f"curl --parallel -L -b ~/.urs_cookies -c ~/.urs_cookies --netrc -K {tmpfilename}"))
+    return_code = process.wait()
+    os.remove(tmpfilename)
+    return return_code
 
 
 def fetch_raster_window(
@@ -182,6 +226,16 @@ def fetch_raster_window(
         np.array(fill_value, dtype),
         reader_table.shape + (current_window.height, current_window.width),
     )
+    # check for HDF4 files, assuming one means all are HDF4, and assets are subdatasets
+    # on the same file
+    HDF4_FLAG = check_hdf4(reader_table[0,0][0].url)
+
+    # download files
+    if HDF4_FLAG:
+        download_urls = [strip_link(r[0].url) for r in reader_table[:, 0]]
+        code = bulk_download(download_urls)
+        if code != 0:
+            raise RuntimeError(f"Download failed! Return code {code}")
 
     all_empty: bool = True
     entry: ReaderTableEntry
@@ -217,6 +271,11 @@ def fetch_raster_window(
 
         output[index] = data
     thread_pool.shutdown()
+
+    if HDF4_FLAG:
+        downloaded_files = [fileize_link(d, file_only=True) for d in download_urls]
+        for f in downloaded_files:
+            os.remove(f)
     if TRACE:
         logger.warning("Shutdown pool")
     return output
