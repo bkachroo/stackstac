@@ -402,9 +402,9 @@ class AutoParallelRioReader:
         if self.rescale:
             scale, offset = reader.scale_offset
             if scale != 1:
-                result *= scale
+                result = result*scale
             if offset != 0:
-                result += offset
+                result = result+offset
 
         result = result.astype(self.dtype, copy=False)
         result = np.ma.filled(result, fill_value=self.fill_value)
