@@ -344,10 +344,10 @@ def prepare_items(
     item_isnan = isnan_table.all(axis=1)
     asset_id_isnan = isnan_table.all(axis=0)
 
-    if item_isnan.any() or asset_id_isnan.any():
-        asset_table = asset_table[np.ix_(~item_isnan, ~asset_id_isnan)]
-        asset_ids = [id for id, isnan in zip(asset_ids, asset_id_isnan) if not isnan]
-        items = [item for item, isnan in zip(items, item_isnan) if not isnan]
+    #if item_isnan.any() or asset_id_isnan.any():
+        #asset_table = asset_table[np.ix_(~item_isnan, ~asset_id_isnan)]
+        #asset_ids = [id for id, isnan in zip(asset_ids, asset_id_isnan) if not isnan]
+        #items = [item for item, isnan in zip(items, item_isnan) if not isnan]
 
     return asset_table, spec, asset_ids, items
 
