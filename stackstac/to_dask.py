@@ -201,8 +201,12 @@ def bulk_download(urls):
     urltxt = "\n".join(["url = " + z for z in urls] + ["--remote-name-all"])
     with open(tmpfilename, 'w') as f:
         f.write(urltxt)
+    if TRACE:
+        logger.warning("Start bulk download")
     process = subprocess.Popen(shlex.split(f"curl --parallel -L -b ~/.urs_cookies -c ~/.urs_cookies --netrc -K {tmpfilename}"))
     return_code = process.wait()
+    if TRACE:
+        logger.warning("Finished bulk download")
     os.remove(tmpfilename)
     return return_code
 
