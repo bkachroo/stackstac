@@ -23,6 +23,7 @@ import os
 import subprocess
 import uuid
 import shlex
+import requests
 
 ChunkVal = Union[int, Literal["auto"], str, None]
 ChunksParam = Union[ChunkVal, Tuple[ChunkVal, ...], Dict[int, ChunkVal]]
@@ -203,19 +204,70 @@ def fileize_link(subdataset_url, extension='.hdf', file_only=False):
 
 def bulk_download(urls):
     # write to tempfile
-    tmpfilename = 'curlconfig' + str(uuid.uuid4()) + '.txt'
-    urltxt = "\n".join(["url = " + z for z in urls] + ["--remote-name-all"])
-    with open(tmpfilename, 'w') as f:
-        f.write(urltxt)
-    if TRACE:
-        logger.warning("Start bulk download")
-    process = subprocess.Popen(shlex.split(f"curl --parallel -L -b ~/.urs_cookies -c ~/.urs_cookies --netrc --remote-name-all -K {tmpfilename}"))
+    if urls[0].startswith('http'):
+        tmpfilename = 'curlconfig' + str(uuid.uuid4()) + '.txt'
+        urltxt = "\n".join(["url = " + z for z in urls] + ["--remote-name-all"])
+        with open(tmpfilename, 'w') as f:
+            f.write(urltxt)
+        if TRACE:
+            logger.warning("Start bulk download")
+        process = subprocess.Popen(shlex.split(f"curl --parallel -L -b ~/.urs_cookies -c ~/.urs_cookies --netrc --remote-name-all -K {tmpfilename}"))
+
+        if TRACE:
+            logger.warning("Finished bulk download")
+
+    if urls[0].startswith('s3'):
+        if TRACE:
+            logger.warning("Start bulk download")
+            log_value = 'info'
+        else:
+            log_value = 'error'
+        if not os.path.isfile('nasas3creds'):
+            creds = get_nasa_s3_creds()
+            with open('nasas3creds', 'w') as f:
+                f.write("\n".join(["[nasa]", f"aws_access_key_id={creds['aws_access_key_id']}",
+                                   f"aws_secret_access_key={creds['aws_secret_access_key']}",
+                                   f"aws_session_token={creds['aws_session_token']}"]))
+        tmpfilename = 's3down' + str(uuid.uuid4()) + '.txt'
+        f = open(tmpfilename, 'w')
+        f.write('\n'.join([f"cp --source-region='us-west-2' --flatten '{url}' ." for url in urls]))
+        f.close()
+        process = subprocess.Popen(shlex.split(f"./s5cmd "
+                                               f"--log {log_value} "
+                                               f"--request-payer=requester "
+                                               f"--credentials-file nasas3creds "
+                                               f"--profile nasa "
+                                               f"run {tmpfilename}"))
     return_code = process.wait()
     if TRACE:
         logger.warning("Finished bulk download")
     os.remove(tmpfilename)
     return return_code
 
+def get_nasa_s3_creds():
+    # get username/password from netrc file
+    netrc_creds = {}
+    with open(os.path.expanduser("~/.netrc")) as f:
+        g = f.read().strip().replace('\n', ' ').split(' ')
+        for i in range(len(g)//2):
+            netrc_creds[g[2*i]] = g[2*i+1]
+
+    # request AWS credentials for direct read access
+    url = requests.get(
+        "https://data.lpdaac.earthdatacloud.nasa.gov/s3credentials",
+        allow_redirects=False,
+    ).headers["Location"]
+
+    raw_creds = requests.get(
+        url, auth=(netrc_creds["login"], netrc_creds["password"])
+    ).json()
+
+    return dict(
+        aws_access_key_id=raw_creds["accessKeyId"],
+        aws_secret_access_key=raw_creds["secretAccessKey"],
+        aws_session_token=raw_creds["sessionToken"],
+        region_name="us-west-2",
+    )
 
 def fetch_raster_window(
     reader_table: np.ndarray,
