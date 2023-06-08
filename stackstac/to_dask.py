@@ -179,6 +179,9 @@ def strip_link(subdataset_url, extension='.hdf'):
     vsi_pos = subdataset_url.find('/vsi')
     if vsi_pos != -1:
         return subdataset_url[vsi_pos:end_pos]
+    s3_pos = subdataset_url.find('s3://')
+    if s3_pos != -1:
+        return subdataset_url[s3_pos:end_pos]
     return None
 
 def fileize_link(subdataset_url, extension='.hdf', file_only=False):
@@ -192,6 +195,9 @@ def fileize_link(subdataset_url, extension='.hdf', file_only=False):
     vsi_pos = subdataset_url.find('/vsi')
     if vsi_pos != -1:
         return subdataset_url[:vsi_pos] + subdataset_url[folder_end:]
+    s3_pos = subdataset_url.find('s3://')
+    if s3_pos != -1:
+        return subdataset_url[:s3_pos] + subdataset_url[folder_end:]
     return None
 
 
