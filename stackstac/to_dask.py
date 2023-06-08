@@ -232,7 +232,11 @@ def fetch_raster_window(
     )
     # check for HDF4 files, assuming one means all are HDF4, and assets are subdatasets
     # on the same file
-    HDF4_FLAG = check_hdf4(reader_table[0,0][0].url)
+    HDF4_FLAG = False
+    for index, entry in np.ndenumerate(reader_table):
+        if entry:
+            HDF4_FLAG = check_hdf4(entry[0].url)
+            break
 
     # download files
     if HDF4_FLAG:
