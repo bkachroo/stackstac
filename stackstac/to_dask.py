@@ -211,7 +211,7 @@ def bulk_download(urls):
             f.write(urltxt)
         if TRACE:
             logger.warning("Start bulk download")
-        process = subprocess.Popen(shlex.split(f"curl --retry 3 --parallel -L -b ~/.urs_cookies -c ~/.urs_cookies --netrc --remote-name-all -K {tmpfilename}"))
+        process = subprocess.Popen(shlex.split(f"curl --retry 3 -s --parallel -L -b ~/.urs_cookies -c ~/.urs_cookies --netrc --remote-name-all -K {tmpfilename}"))
 
         if TRACE:
             logger.warning("Finished bulk download")
